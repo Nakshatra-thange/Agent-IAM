@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import db from "./db.js";
 import { generateClientSecret, hashSecret, verifySecret } from "./crypto-utils.js";
+import { requireAdmin } from "./admin-middleware.js";
 
 dotenv.config();
 const app = express();
@@ -111,6 +112,108 @@ app.post("/agents/:id/token", (req, res) => {
     system,
     jti,
   });
+});
+
+
+
+// ─────────────────────────────────────────────
+// REVOCATION ROUTES (admin only)
+// ─────────────────────────────────────────────
+
+/**
+ * POST /admin/tokens/:jti/revoke
+ * Kills ONE token. Agent keeps working, can request new tokens normally.
+ * Use case: a single credential leaked (e.g. found in a log or repo).
+ */
+app.post("/admin/tokens/:jti/revoke", requireAdmin, (req, res) => {
+  const { jti } = req.params;
+
+  const token = db.prepare(`SELECT * FROM issued_tokens WHERE jti = ?`).get(jti);
+  if (!token) return res.status(404).json({ error: "token not found" });
+
+  if (token.revoked) {
+    return res.status(200).json({ message: "token already revoked", jti });
+  }
+
+  db.prepare(`UPDATE issued_tokens SET revoked = 1 WHERE jti = ?`).run(jti);
+  logAudit(token.agent_id, "TOKEN_REVOKED", { jti, system: token.system, scope: token.scope, reason: req.body?.reason });
+
+  return res.json({ message: "token revoked", jti });
+});
+
+/**
+ * POST /admin/agents/:id/suspend
+ * Kills the AGENT. Middleware checks agent.status on every request,
+ * so this invalidates all existing tokens instantly (no cache/TTL wait)
+ * and blocks issuance of any new ones.
+ */
+app.post("/admin/agents/:id/suspend", requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body || {};
+
+  const agent = db.prepare(`SELECT * FROM agents WHERE id = ?`).get(id);
+  if (!agent) return res.status(404).json({ error: "agent not found" });
+
+  db.prepare(`UPDATE agents SET status = 'suspended' WHERE id = ?`).run(id);
+
+  // bulk-revoke every live token this agent currently holds, for clean audit trail
+  const liveTokens = db
+    .prepare(`SELECT jti FROM issued_tokens WHERE agent_id = ? AND revoked = 0`)
+    .all(id);
+  db.prepare(`UPDATE issued_tokens SET revoked = 1 WHERE agent_id = ? AND revoked = 0`).run(id);
+
+  logAudit(id, "AGENT_SUSPENDED", { reason, tokens_revoked: liveTokens.length });
+
+  return res.json({
+    message: `agent ${agent.name} suspended`,
+    tokens_revoked: liveTokens.length,
+  });
+});
+
+/**
+ * POST /admin/agents/:id/reactivate
+ * Un-suspends an agent. Old tokens stay dead (they were revoked, not paused) —
+ * agent must request fresh tokens after reactivation. This is intentional.
+ */
+app.post("/admin/agents/:id/reactivate", requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const agent = db.prepare(`SELECT * FROM agents WHERE id = ?`).get(id);
+  if (!agent) return res.status(404).json({ error: "agent not found" });
+
+  db.prepare(`UPDATE agents SET status = 'active' WHERE id = ?`).run(id);
+  logAudit(id, "AGENT_REACTIVATED", {});
+
+  return res.json({ message: `agent ${agent.name} reactivated` });
+});
+
+/**
+ * GET /admin/agents/:id/tokens
+ * Visibility into what's currently live for an agent — useful for an
+ * ops dashboard ("what can Forge do right now?").
+ */
+app.get("/admin/agents/:id/tokens", requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const tokens = db
+    .prepare(
+      `SELECT jti, system, scope, issued_at, expires_at, revoked
+       FROM issued_tokens WHERE agent_id = ? ORDER BY issued_at DESC`
+    )
+    .all(id);
+
+  return res.json({ agent_id: id, tokens });
+});
+
+/**
+ * GET /admin/audit-log?agent_id=...
+ * Full accountability trail — every issuance, denial, revocation, suspension.
+ */
+app.get("/admin/audit-log", requireAdmin, (req, res) => {
+  const { agent_id } = req.query;
+  const rows = agent_id
+    ? db.prepare(`SELECT * FROM audit_log WHERE agent_id = ? ORDER BY created_at DESC LIMIT 200`).all(agent_id)
+    : db.prepare(`SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 200`).all();
+
+  return res.json({ count: rows.length, entries: rows });
 });
 
 app.get("/health", (req, res) => res.json({ ok: true }));
