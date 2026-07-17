@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import db from "./db.js";
 import { generateClientSecret, hashSecret, verifySecret } from "./crypto-utils.js";
 import { requireAdmin } from "./admin-middleware.js";
+import { startCronJobs } from "./rotation-cron.js";
 
 dotenv.config();
 const app = express();
@@ -217,6 +218,10 @@ app.get("/admin/audit-log", requireAdmin, (req, res) => {
 });
 
 app.get("/health", (req, res) => res.json({ ok: true }));
+
+
+startCronJobs();
+
 
 app.listen(PORT, () => {
   console.log(`Agent IAM running on http://localhost:${PORT}`);
