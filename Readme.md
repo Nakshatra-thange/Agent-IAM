@@ -15,7 +15,7 @@ to autonomous workers.
 - Instant revocation — single token OR entire agent, live requests included
 - Auto-rotation of stale secrets + audit log of every issuance/denial
 
-## Architecture
+
 
 
 ## Run it
