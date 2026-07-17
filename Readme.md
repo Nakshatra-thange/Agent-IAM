@@ -25,21 +25,21 @@ to autonomous workers.
 - npm install
 
 # 2. Set up environment
-cp .env.example .env
-# then edit .env and set:
-#   JWT_SECRET=<long random string, 32+ chars>
-#   ADMIN_API_KEY=<long random string>
+- cp .env.example .env
+- then edit .env and set:
+- JWT_SECRET=<long random string, 32+ chars>
+- ADMIN_API_KEY=<long random string>
 
 # 3. Start the IAM server (Part 1 + Part 3 routes)
-npm start
-# → running on http://localhost:4000
+- npm start
+- running on http://localhost:4000
 
 # 4. In a second terminal, start the mock resource server (Part 2)
-node mock-resource-server.js
-# → running on http://localhost:5000
+- node mock-resource-server.js
+-  running on http://localhost:5000
 
 # 5.  Run the rotation cron manually to see it work without waiting
-node rotation-cron.js --run-now
+- node rotation-cron.js --run-now
 
 ## Why this matters
 As companies deploy AI "digital employees" (see: Paddox, Sierra, etc.),
