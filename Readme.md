@@ -20,9 +20,9 @@ to autonomous workers.
 
 ## Run it
 # 1. Clone and install
-git clone https://github.com/Nakshatra-thange/Agent-IAM
-cd agent-iam
-npm install
+- git clone https://github.com/Nakshatra-thange/Agent-IAM
+- cd agent-iam
+- npm install
 
 # 2. Set up environment
 cp .env.example .env
